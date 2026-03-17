@@ -13,7 +13,7 @@ An intelligent surveillance system that uses computer vision and deep learning t
 - Dashboard for monitoring
 - Historical data analysis
 - Report generation
-
+ 
 ## Technology Stack
 - **Backend**: Python, Flask
 - **Computer Vision**: OpenCV, YOLOv8 (Ultralytics)
