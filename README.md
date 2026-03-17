@@ -1,4 +1,4 @@
-# AI Surveillance System for Cleanliness and Public Safety
+# AI Surveillance System for Cleanliness Enforcement
 
 ## Overview
 An intelligent surveillance system that uses computer vision and deep learning to monitor public spaces for:
