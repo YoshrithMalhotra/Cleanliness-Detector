@@ -1,0 +1,202 @@
+"""
+Main Flask application for AI Surveillance System
+"""
+
+from flask import Flask, render_template, Response, jsonify, request
+import cv2
+import threading
+import time
+from datetime import datetime
+import os
+
+from config import Config
+from models.detector import UnifiedDetector
+from utils.camera import CameraManager
+from utils.alerts import AlertManager
+from utils.database import Database
+
+app = Flask(__name__)
+app.config.from_object(Config)
+
+# Initialize components
+db = Database(Config.DATABASE_PATH)
+camera_manager = CameraManager(Config.CAMERA_SOURCES)
+detector = UnifiedDetector()
+alert_manager = AlertManager(db)
+
+# Global state
+system_active = False
+detection_results = {}
+
+def create_directories():
+    """Create necessary directories"""
+    dirs = [
+        'data',
+        Config.FRAMES_DIR,
+        Config.ALERTS_DIR,
+        Config.REPORTS_DIR,
+    ]
+    for dir_path in dirs:
+        os.makedirs(dir_path, exist_ok=True)
+
+def process_frame(camera_id, frame):
+    """Process a single frame for detection"""
+    try:
+        # Run detection
+        results = detector.detect(frame)
+        
+        # Analyze results
+        people_count = results.get('people_count', 0)
+        cleanliness_score = results.get('cleanliness_score', 1.0)
+        safety_issues = results.get('safety_issues', [])
+        
+        # Check for alerts
+        alerts = []
+        
+        # Overcrowding
+        if people_count > Config.MAX_PEOPLE_COUNT:
+            alerts.append({
+                'type': 'overcrowding',
+                'severity': 'high',
+                'message': f'Overcrowding detected: {people_count} people',
+                'camera_id': camera_id
+            })
+        
+        # Cleanliness issues
+        if cleanliness_score < Config.MIN_CLEANLINESS_SCORE:
+            alerts.append({
+                'type': 'cleanliness',
+                'severity': 'medium',
+                'message': f'Cleanliness issue detected (score: {cleanliness_score:.2f})',
+                'camera_id': camera_id
+            })
+        
+        # Safety issues
+        for issue in safety_issues:
+            alerts.append({
+                'type': 'safety',
+                'severity': 'critical',
+                'message': f'Safety issue: {issue}',
+                'camera_id': camera_id
+            })
+        
+        # Send alerts
+        for alert in alerts:
+            alert_manager.send_alert(alert)
+            # Save to database
+            db.save_alert(alert)
+        
+        # Draw detections on frame
+        annotated_frame = detector.draw_detections(frame, results)
+        
+        # Save detection results
+        detection_results[camera_id] = {
+            'timestamp': datetime.now().isoformat(),
+            'people_count': people_count,
+            'cleanliness_score': cleanliness_score,
+            'safety_issues': safety_issues,
+            'alerts': alerts
+        }
+        
+        # Save to database
+        db.save_detection(camera_id, results)
+        
+        return annotated_frame
+        
+    except Exception as e:
+        print(f"Error processing frame: {e}")
+        return frame
+
+def generate_frames(camera_id):
+    """Generate frames for video streaming"""
+    frame_counter = 0
+    
+    while True:
+        if not system_active:
+            time.sleep(0.1)
+            continue
+            
+        frame = camera_manager.get_frame(camera_id)
+        if frame is None:
+            continue
+        
+        # Process every Nth frame
+        if frame_counter % Config.FRAME_RATE == 0:
+            frame = process_frame(camera_id, frame)
+        
+        frame_counter += 1
+        
+        # Encode frame
+        ret, buffer = cv2.imencode('.jpg', frame)
+        if not ret:
+            continue
+            
+        frame_bytes = buffer.tobytes()
+        
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+
+@app.route('/')
+def index():
+    """Main dashboard page"""
+    return render_template('index.html', cameras=list(Config.CAMERA_SOURCES.keys()))
+
+@app.route('/video_feed/<camera_id>')
+def video_feed(camera_id):
+    """Video streaming route"""
+    return Response(generate_frames(camera_id),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/api/start', methods=['POST'])
+def start_system():
+    """Start the surveillance system"""
+    global system_active
+    system_active = True
+    camera_manager.start_all()
+    return jsonify({'status': 'started', 'message': 'Surveillance system started'})
+
+@app.route('/api/stop', methods=['POST'])
+def stop_system():
+    """Stop the surveillance system"""
+    global system_active
+    system_active = False
+    camera_manager.stop_all()
+    return jsonify({'status': 'stopped', 'message': 'Surveillance system stopped'})
+
+@app.route('/api/status')
+def get_status():
+    """Get current system status"""
+    return jsonify({
+        'active': system_active,
+        'cameras': camera_manager.get_status(),
+        'detections': detection_results,
+        'timestamp': datetime.now().isoformat()
+    })
+
+@app.route('/api/alerts')
+def get_alerts():
+    """Get recent alerts"""
+    limit = request.args.get('limit', 50, type=int)
+    alerts = db.get_recent_alerts(limit)
+    return jsonify(alerts)
+
+@app.route('/api/analytics')
+def get_analytics():
+    """Get analytics data"""
+    hours = request.args.get('hours', 24, type=int)
+    analytics = db.get_analytics(hours)
+    return jsonify(analytics)
+
+@app.route('/dashboard')
+def dashboard():
+    """Analytics dashboard"""
+    return render_template('dashboard.html')
+
+if __name__ == '__main__':
+    create_directories()
+    db.initialize()
+    print("🚀 AI Surveillance System Starting...")
+    print("📹 Access the system at: http://localhost:5000")
+    app.run(host='0.0.0.0', port=5000, debug=Config.DEBUG, threaded=True)
+^X
+
