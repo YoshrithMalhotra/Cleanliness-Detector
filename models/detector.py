@@ -131,7 +131,7 @@ class UnifiedDetector:
                        (bbox[0], bbox[1] - 5),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
         
-        # Draw info panel
+        # Draw info panel...
         info_height = 120
         overlay = annotated_frame.copy()
         cv2.rectangle(overlay, (0, 0), (300, info_height), (0, 0, 0), -1)
