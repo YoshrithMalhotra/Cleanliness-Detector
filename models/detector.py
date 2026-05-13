@@ -145,7 +145,7 @@ class UnifiedDetector:
         cv2.putText(annotated_frame, f"Cleanliness: {results['cleanliness_score']:.2f}", 
                    (10, 85), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
         
-        # Display alerts
+        # Display safety alert if issues detected
         if results['safety_issues']:
             cv2.putText(annotated_frame, "⚠️ ALERT!", 
                        (10, 115), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
